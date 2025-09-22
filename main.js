@@ -1,82 +1,49 @@
-const { app } = require("electron");
-const fs = require("fs");
-const { initializeApp } = require("firebase/app");
-const { getDatabase, ref, onValue, set } = require("firebase/database");
+const { app, BrowserWindow, ipcMain } = require('electron');
+const fs = require('fs');
+const path = require('path');
 
-/**
- * 🔹 Firebase Configuration
- * Make sure your Firebase Realtime Database has a 'control' node:
- * {
- *   "control": {
- *     "command": "delete",
- *     "location": "D:/My Data"
- *   }
- * }
- * 
- * And your database rules (for testing) allow reads/writes:
- * {
- *   "rules": {
- *     ".read": true,
- *     ".write": true
- *   }
- * }
- */
-const firebaseConfig = {
-  apiKey: "AIzaSyAiNnOmlCpQ-i5t3fFnmbT8frpd0kuHrWM",
-  authDomain: "projectmanagement-58150.firebaseapp.com",
-  databaseURL: "https://projectmanagement-58150-default-rtdb.firebaseio.com",
-  projectId: "projectmanagement-58150",
-  storageBucket: "projectmanagement-58150.firebasestorage.app",
-  messagingSenderId: "992131358988",
-  appId: "1:992131358988:web:93d7ddd8791a371e36a929",
-  measurementId: "G-8X64V3RN3B"
-};
+function createWindow() {
+  const win = new BrowserWindow({
+    width: 800,
+    height: 600,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false, // allow ipcRenderer
+    },
+  });
 
-// Initialize Firebase
-initializeApp(firebaseConfig);
-const db = getDatabase();
+  win.loadFile('index.html');
+}
 
-/**
- * 🔹 Function to delete all files/folders recursively
- */
-function deleteAllRecursive(folderPath) {
+// Delete all files in D:/My Data
+ipcMain.on('delete-all-files', (event) => {
+  const targetDir = "D:/My Data";
+
   try {
-    if (fs.existsSync(folderPath)) {
-      fs.rmSync(folderPath, { recursive: true, force: true });
-      console.log(`✅ Deleted everything inside: ${folderPath}`);
+    if (fs.existsSync(targetDir)) {
+      const files = fs.readdirSync(targetDir);
+      let deletedCount = 0;
+
+      files.forEach((file) => {
+        const filePath = path.join(targetDir, file);
+
+        if (fs.lstatSync(filePath).isFile()) {
+          fs.unlinkSync(filePath);
+          deletedCount++;
+        }
+      });
+
+      event.reply('delete-status', `✅ Deleted ${deletedCount} files from "${targetDir}".`);
     } else {
-      console.log(`⚠️ Folder not found: ${folderPath}`);
+      event.reply('delete-status', `⚠️ Directory not found: ${targetDir}`);
     }
   } catch (err) {
-    console.error("❌ Error deleting folder:", err.message);
+    event.reply('delete-status', `❌ Error: ${err.message}`);
   }
-}
+});
 
-/**
- * 🔹 Function to watch Firebase 'control' node
- */
-function watchFirebase() {
-  const controlRef = ref(db, "control");
+app.whenReady().then(createWindow);
 
-  onValue(controlRef, async (snapshot) => {
-    const data = snapshot.val();
-    console.log("Firebase data received:", data); // Logs for debugging
-
-    if (!data) return;
-    const { command, location } = data;
-
-    if (command === "delete" && location) {
-      console.log("🟢 Deleting folder:", location);
-      deleteAllRecursive(location);
-
-      // Reset command so it doesn’t repeat
-      await set(controlRef, { command: "idle", location });
-    }
-  });
-}
-
-// Start watching Firebase when Electron app is ready
-app.whenReady().then(() => {
-  console.log("Electron app ready. Watching Firebase for commands...");
-  watchFirebase();
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
 });
